@@ -18,6 +18,7 @@ require 'aws-sdk-dynamodb'
 module Visibility_DataStore
   module Visibility_DynamoDB
     US_WEST_1 = "us-west-1"
+    TABLE_OSIRIS = "SessionLogOsiris"
     ## NOTE: It seems that AWS prefers to use and only use a combination of ~/.aws/credentials and
     ## NOTE: environment variables with the credentials for access key, secret, AND region
     ## NOTE: trying to override using aws-sdk ruby seems to improperly override the params
@@ -78,7 +79,6 @@ class DynamoDB_Resource
         puts "Name:    #{table.name}"
         puts "#Items:  #{table.item_count}"
       end
-      #
     end
 end
 DynamoDB_Resource.new
@@ -96,7 +96,7 @@ def store_log(inputSessionID, createdAt, inputLog, deviceSession)
     DeviceSession: deviceSession
   }
   params = {
-    table_name: 'SessionLogOsiris',
+    table_name: Visibility_DataStore::Visibility_DynamoDB::TABLE_OSIRIS,
     item: item
   }
   begin
