@@ -1,0 +1,22 @@
+  421  cd ~/Development/
+  422  ls
+  423  git clone git@github.com:mikezucc/jack-rabbit-ruby
+  424  ls
+  425  cd jack-rabbit-ruby/
+  426  ls
+  427  gem install bunny
+  428  sudo gem install bunny
+  429  ls -l
+  430  nano jack-listen.rb
+  431  atom .
+  432  ls
+  433  sudo apt-get update
+  434  sudo apt-get install rabbitmq-server
+  435  rabbitmq-server -v
+  436  service rabbitmq-server start
+  437  ls -l
+  438  ruby jack-listen.rb 
+  439  service rabbitmq-server restart
+  440  ruby jack-listen.rb 
+  441  history
+
