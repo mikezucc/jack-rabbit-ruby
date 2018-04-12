@@ -4,74 +4,21 @@
 require 'bunny'
 require 'aws-sdk'
 require 'aws-sdk-dynamodb'
+require './jack-knows.rb'
 # require 'Date'
 
 # Good Ruby DynamoDB resource: https://gist.github.com/ujuettner/3914147
 
-# 3rd party service configurations, aside from in memory/environment auth credentials
-# ensure that keys are stored in ~/.aws/credentials as
-# [default]
-# aws_access_key_id = <>
-# aws_secret_access_key = <>
-# $DYNAMO_PUBLIC_KEY = ""
-# $DYNAMO_PRIVATE_KEY = ""
-module Visibility_DataStore
-  module Visibility_DynamoDB
-    US_WEST_1 = "us-west-1"
-    TABLE_OSIRIS = "SessionLogOsiris"
-    ## NOTE: It seems that AWS prefers to use and only use a combination of ~/.aws/credentials and
-    ## NOTE: environment variables with the credentials for access key, secret, AND region
-    ## NOTE: trying to override using aws-sdk ruby seems to improperly override the params
-    ## NOTE: causing a signature failure response from AWS
-    #     #
-    #     # CONFIG Initialize the Aws Config environment
-    #     # Set up the AWS environment based on a config file
-    #     #
-    #     def self.Configure(credentialsDir = File.expand_path("..", Dir.pwd), keyFile = 'dynamoboysprivatekey1.txt')
-    #       keys_file = File.join(credentialsDir, keyFile)
-    #       puts "[Visibility_DataStore::Visibility_DynamoDB] Looking for AWS credentials: " + keys_file
-    #       unless File.exist?(keys_file)
-    #         puts "#{keys_file} dne"
-    #         exit 1
-    #       end
-    #
-    #       line_number = 0
-    #       File.open(keys_file, 'r') do |f|
-    #         f.each_line do |line|
-    #           case line_number
-    #           when 0
-    #             $DYNAMO_PRIVATE_KEY = line
-    #           when 1
-    #             $DYNAMO_PUBLIC_KEY = line
-    #           end
-    #           line_number += 1
-    #         end
-    #       end
-    #     end
-    #     #
-    #     # CONFIG Initialize the Aws Config environment
-    #     # Set up the AWS environment based on a config file
-    #     #
-  end
-
-  module Visibility_RabbitMQ
-    ADDRESS_LOOPBACK = "localhost"
-    ROOT_LOGGING_CHANNEL = "lc"
-    ROOT_ROUTING_KEY = "root.routing.key"
-  end
-end
-
-
 # Visibility_DataStore::Visibility_DynamoDB.Configure()
 # AWS_credentials = Aws::Credentials.new($DYNAMO_PUBLIC_KEY, $DYNAMO_PRIVATE_KEY)
-$dynamodb = 0;
-class DynamoDB_Resource
+$dynamodb_WRITE_OSIRIS = 0;
+class DynamoDB_Read_Resource
     def initialize
       #
       # Global dynamodb
       # Points to US_WEST_1 which has a sort key
       # WARN: RUNS ON SCRIPT EVAL
-      $dynamodb = Aws::DynamoDB::Client.new(region: Visibility_DataStore::Visibility_DynamoDB::US_WEST_1)
+      $dynamodb_WRITE_OSIRIS = Aws::DynamoDB::Client.new(region: Visibility_DataStore::Visibility_DynamoDB::US_WEST_1)
       puts "DynamoDB booting from " + Visibility_DataStore::Visibility_DynamoDB::US_WEST_1
 
       dynamoDB_ResourceCheck = Aws::DynamoDB::Resource.new(region: Visibility_DataStore::Visibility_DynamoDB::US_WEST_1)
@@ -81,26 +28,60 @@ class DynamoDB_Resource
       end
     end
 end
-DynamoDB_Resource.new
+DynamoDB_Read_Resource.new
 
 #
-# function store_log(input_session_id, input_log)
+# function begin_log(measurement)
 #
-# @param session_id is a UID device defined string
-# @param input_log is an unescaped string of the underlying log message
-def store_log(inputSessionID, createdAt, inputLog, deviceSession)
+# @param bodyJSON Visibilty Standards 1: Device identifier protocol, info dictionary, json
+# NOTE: Epoch measurement here
+def begin_log(bodyJSON)
+  sinceEpoch = (Time.now.to_f * 100000).to_i
   item = {
-    SessionID: inputSessionID,
-    CreatedAt: createdAt,
-    log: inputLog,
-    DeviceSession: deviceSession
+    LogID: bodyJSON["LogID"],
+    SinceEpoch: sinceEpoch,
+    log: bodyJSON["message"],
+    DeviceSession: bodyJSON["DeviceSession"],
+    DeviceID: bodyJSON["DeviceID"],
+    TeamID: bodyJSON["TeamID"],
   }
   params = {
-    table_name: Visibility_DataStore::Visibility_DynamoDB::TABLE_OSIRIS,
+    table_name: Visibility_DataStore::Visibility_DynamoDB::TABLE_SESSIONS_OSIRIS,
     item: item
   }
   begin
-    result = $dynamodb.put_item(params)
+    result = $dynamodb_WRITE_OSIRIS.put_item(params)
+    puts 'Added log'
+  rescue  Aws::DynamoDB::Errors::ServiceError => error
+    puts 'Unable to add session log:'
+    puts error.message
+  end
+end
+#
+# function begin_log(measurement)
+#
+
+#
+# function store_log(bodyJSON)
+#
+# @param bodyJSON Visibilty Standards 1: Device identifier protocol, info dictionary, json
+# NOTE: Epoch measurement here
+def store_log(bodyJSON)
+  sinceEpoch = (Time.now.to_f * 100000).to_i
+  item = {
+    LogID: bodyJSON["LogID"],
+    SinceEpoch: sinceEpoch,
+    log: bodyJSON["message"],
+    DeviceSession: bodyJSON["DeviceSession"],
+    DeviceID: bodyJSON["DeviceID"],
+    TeamID: bodyJSON["TeamID"],
+  }
+  params = {
+    table_name: Visibility_DataStore::Visibility_DynamoDB::TABLE_SESSION_LOGS_OSIRIS,
+    item: item
+  }
+  begin
+    result = $dynamodb_WRITE_OSIRIS.put_item(params)
     puts 'Added log'
   rescue  Aws::DynamoDB::Errors::ServiceError => error
     puts 'Unable to add session log:'
@@ -133,7 +114,7 @@ def create_rabbit_mq_listener(channelName=Visibility_DataStore::Visibility_Rabbi
     queue.subscribe(block: true) do |delivery_info, _properties, body|
       puts " [x] #{delivery_info.routing_key}:#{body}"
       bodyJSON = JSON.parse(body)
-      store_log(bodyJSON["SessionID"], bodyJSON["CreatedAt"], bodyJSON["message"], bodyJSON["DeviceSession"])
+      store_log(bodyJSON)
     end
   rescue Interrupt => _
     channel.close
